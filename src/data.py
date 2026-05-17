@@ -1,55 +1,55 @@
 import requests
 
-# Bybit v5 public REST. If blocked, swap to api.binance.com / www.okx.com (paths differ).
-BASE = "https://api.bybit.com"
+# CryptoCompare public REST. CDN-fronted, reliably reachable from GitHub Actions.
+BASE = "https://min-api.cryptocompare.com"
+HEADERS = {"User-Agent": "crypto-hourly-watch/1.0"}
 
 
-def get_klines(pair: str, interval: str = "60", limit: int = 210) -> list[dict]:
+def get_klines(symbol: str, tsym: str = "USDT", limit: int = 210) -> list[dict]:
     r = requests.get(
-        f"{BASE}/v5/market/kline",
-        params={"category": "spot", "symbol": pair, "interval": interval, "limit": limit},
-        timeout=10,
+        f"{BASE}/data/v2/histohour",
+        params={"fsym": symbol, "tsym": tsym, "limit": limit},
+        headers=HEADERS,
+        timeout=15,
     )
     r.raise_for_status()
-    items = r.json()["result"]["list"]
-    items = list(reversed(items))  # Bybit returns newest-first
+    body = r.json()
+    if body.get("Response") == "Error":
+        raise RuntimeError(f"CryptoCompare error: {body.get('Message')}")
     return [
         {
-            "time": int(k[0]),
-            "open": float(k[1]),
-            "high": float(k[2]),
-            "low": float(k[3]),
-            "close": float(k[4]),
-            "volume": float(k[5]),
+            "time": int(c["time"]),
+            "open": float(c["open"]),
+            "high": float(c["high"]),
+            "low": float(c["low"]),
+            "close": float(c["close"]),
+            "volume": float(c["volumefrom"]),
         }
-        for k in items
+        for c in body["Data"]["Data"]
     ]
 
 
-def get_ticker_24h(pair: str) -> dict:
+def get_multi_ticker(symbols: list[str], tsym: str = "USDT") -> dict:
     r = requests.get(
-        f"{BASE}/v5/market/tickers",
-        params={"category": "spot", "symbol": pair},
-        timeout=10,
+        f"{BASE}/data/pricemultifull",
+        params={"fsyms": ",".join(symbols), "tsyms": tsym},
+        headers=HEADERS,
+        timeout=15,
     )
     r.raise_for_status()
-    item = r.json()["result"]["list"][0]
-    return {
-        "priceChangePercent": float(item["price24hPcnt"]) * 100,
-        "highPrice": float(item["highPrice24h"]),
-        "lowPrice": float(item["lowPrice24h"]),
-        "lastPrice": float(item["lastPrice"]),
-    }
-
-
-def get_funding_rate_pct(pair: str) -> float:
-    r = requests.get(
-        f"{BASE}/v5/market/funding/history",
-        params={"category": "linear", "symbol": pair, "limit": 1},
-        timeout=10,
-    )
-    r.raise_for_status()
-    items = r.json()["result"]["list"]
-    if not items:
-        return 0.0
-    return float(items[0]["fundingRate"]) * 100
+    body = r.json()
+    if body.get("Response") == "Error":
+        raise RuntimeError(f"CryptoCompare error: {body.get('Message')}")
+    raw = body.get("RAW", {})
+    out = {}
+    for sym in symbols:
+        node = raw.get(sym, {}).get(tsym)
+        if not node:
+            continue
+        out[sym] = {
+            "lastPrice": float(node["PRICE"]),
+            "priceChangePercent": float(node["CHANGEPCT24HOUR"]),
+            "highPrice": float(node["HIGH24HOUR"]),
+            "lowPrice": float(node["LOW24HOUR"]),
+        }
+    return out

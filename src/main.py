@@ -2,33 +2,22 @@ from datetime import datetime, timedelta, timezone
 
 from . import alerts, config, data, indicators, llm, tg
 
-PAIR_MAP = {
-    "BTC": "BTCUSDT",
-    "ETH": "ETHUSDT",
-    "SOL": "SOLUSDT",
-}
-
 CST = timezone(timedelta(hours=8))
 
 
-def build_snapshot(symbol: str) -> dict:
-    pair = PAIR_MAP.get(symbol, f"{symbol}USDT")
-    klines = data.get_klines(pair, interval="1h", limit=210)
-    ticker = data.get_ticker_24h(pair)
-    funding = data.get_funding_rate_pct(pair)
+def build_snapshot(symbol: str, ticker: dict) -> dict:
+    klines = data.get_klines(symbol, tsym="USDT", limit=210)
     closes = [k["close"] for k in klines]
     return {
         "symbol": symbol,
-        "pair": pair,
-        "price": closes[-1],
+        "price": ticker["lastPrice"],
         "change_1h_pct": indicators.pct_change(closes[-1], closes[-2]),
-        "change_24h_pct": float(ticker["priceChangePercent"]),
-        "high_24h": float(ticker["highPrice"]),
-        "low_24h": float(ticker["lowPrice"]),
+        "change_24h_pct": ticker["priceChangePercent"],
+        "high_24h": ticker["highPrice"],
+        "low_24h": ticker["lowPrice"],
         "rsi_1h": indicators.rsi(closes, 14),
         "ma50_1h": indicators.sma(closes, 50),
         "ma200_1h": indicators.sma(closes, 200),
-        "funding_pct": funding,
     }
 
 
@@ -38,17 +27,15 @@ def format_snapshot_line(s: dict) -> str:
         f"  1h {s['change_1h_pct']:+.2f}%"
         f"  24h {s['change_24h_pct']:+.2f}%"
         f"  RSI {s['rsi_1h']:.0f}"
-        f"  Fund {s['funding_pct']:+.4f}%"
     )
 
 
 def format_alert_detail(s: dict, alert_msgs: list[str]) -> str:
-    lines = [
+    return "\n".join([
         f"  H/L 24h: ${s['low_24h']:,.2f} – ${s['high_24h']:,.2f}",
         f"  MA50/MA200 (1h): ${s['ma50_1h']:,.2f} / ${s['ma200_1h']:,.2f}",
         "  ⚠️ " + "  ·  ".join(alert_msgs),
-    ]
-    return "\n".join(lines)
+    ])
 
 
 def build_llm_prompt(snapshots: list[dict], alerts_by_symbol: dict) -> str:
@@ -68,7 +55,6 @@ def build_llm_prompt(snapshots: list[dict], alerts_by_symbol: dict) -> str:
                 f"1h {s['change_1h_pct']:+.2f}%  "
                 f"24h {s['change_24h_pct']:+.2f}%  "
                 f"RSI {s['rsi_1h']:.1f}  "
-                f"Fund {s['funding_pct']:+.4f}%  "
                 f"告警: {', '.join(alerts_by_symbol[s['symbol']])}"
             )
     return "\n".join(lines)
@@ -87,12 +73,21 @@ def build_message(snapshots: list[dict], alerts_by_symbol: dict, llm_text: str) 
 
 
 def main() -> None:
+    try:
+        tickers = data.get_multi_ticker(config.SYMBOLS, tsym="USDT")
+    except Exception as e:
+        print(f"ticker fetch failed: {e}")
+        return
+
     snapshots: list[dict] = []
     alerts_by_symbol: dict[str, list[str]] = {}
 
     for sym in config.SYMBOLS:
+        if sym not in tickers:
+            print(f"[{sym}] no ticker data, skip")
+            continue
         try:
-            s = build_snapshot(sym)
+            s = build_snapshot(sym, tickers[sym])
             snapshots.append(s)
             triggered = alerts.evaluate(s)
             if triggered:
