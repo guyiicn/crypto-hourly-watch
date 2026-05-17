@@ -1,0 +1,40 @@
+name: Hourly Crypto Watch
+
+on:
+  schedule:
+    - cron: '21 * * * *'
+  workflow_dispatch:
+    inputs:
+      force_send:
+        description: 'Force send even if QUIET_MODE is on'
+        required: false
+        default: 'false'
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - run: pip install -r requirements.txt
+
+      - run: python -m src.main
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          SYMBOLS: ${{ vars.SYMBOLS || 'BTC,ETH,SOL' }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-2.0-flash' }}
+          ALERT_1H_PCT: ${{ vars.ALERT_1H_PCT || '3.0' }}
+          ALERT_24H_PCT: ${{ vars.ALERT_24H_PCT || '8.0' }}
+          ALERT_RSI_HIGH: ${{ vars.ALERT_RSI_HIGH || '70' }}
+          ALERT_RSI_LOW: ${{ vars.ALERT_RSI_LOW || '30' }}
+          ALERT_FUNDING_HIGH: ${{ vars.ALERT_FUNDING_HIGH || '0.05' }}
+          QUIET_MODE: ${{ vars.QUIET_MODE || 'false' }}
+          FORCE_SEND: ${{ github.event.inputs.force_send || 'false' }}
