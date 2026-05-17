@@ -9,6 +9,7 @@ def evaluate(s: dict) -> list[str]:
     p1h = s["change_1h_pct"]
     p24h = s["change_24h_pct"]
     rsi_val = s["rsi_1h"]
+    funding = s.get("funding_pct")
     price = s["price"]
     ma200 = s["ma200_1h"]
 
@@ -23,6 +24,10 @@ def evaluate(s: dict) -> list[str]:
             triggered.append(f"RSI 超买 {rsi_val:.1f}")
         elif rsi_val <= config.ALERT_RSI_LOW:
             triggered.append(f"RSI 超卖 {rsi_val:.1f}")
+
+    if funding is not None and abs(funding) >= config.ALERT_FUNDING_HIGH:
+        side = "多头拥挤" if funding > 0 else "空头拥挤"
+        triggered.append(f"资金费率异常 {funding:+.4f}% ({side})")
 
     if not math.isnan(ma200) and ma200 > 0:
         if abs(price - ma200) / ma200 < 0.005:

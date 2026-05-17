@@ -5,7 +5,7 @@ from . import alerts, config, data, indicators, llm, tg
 CST = timezone(timedelta(hours=8))
 
 
-def build_snapshot(symbol: str, ticker: dict) -> dict:
+def build_snapshot(symbol: str, ticker: dict, funding: float | None) -> dict:
     klines = data.get_klines(symbol, tsym="USDT", limit=210)
     closes = [k["close"] for k in klines]
     return {
@@ -18,15 +18,18 @@ def build_snapshot(symbol: str, ticker: dict) -> dict:
         "rsi_1h": indicators.rsi(closes, 14),
         "ma50_1h": indicators.sma(closes, 50),
         "ma200_1h": indicators.sma(closes, 200),
+        "funding_pct": funding,
     }
 
 
 def format_snapshot_line(s: dict) -> str:
+    fund_part = f"  Fund {s['funding_pct']:+.4f}%" if s["funding_pct"] is not None else ""
     return (
         f"<b>{s['symbol']}</b> ${s['price']:,.2f}"
         f"  1h {s['change_1h_pct']:+.2f}%"
         f"  24h {s['change_24h_pct']:+.2f}%"
         f"  RSI {s['rsi_1h']:.0f}"
+        f"{fund_part}"
     )
 
 
@@ -50,11 +53,12 @@ def build_llm_prompt(snapshots: list[dict], alerts_by_symbol: dict) -> str:
     ]
     for s in snapshots:
         if s["symbol"] in alerts_by_symbol:
+            fund_str = f"  Fund {s['funding_pct']:+.4f}%" if s["funding_pct"] is not None else ""
             lines.append(
                 f"- {s['symbol']} ${s['price']:,.2f}  "
                 f"1h {s['change_1h_pct']:+.2f}%  "
                 f"24h {s['change_24h_pct']:+.2f}%  "
-                f"RSI {s['rsi_1h']:.1f}  "
+                f"RSI {s['rsi_1h']:.1f}{fund_str}  "
                 f"告警: {', '.join(alerts_by_symbol[s['symbol']])}"
             )
     return "\n".join(lines)
@@ -79,6 +83,8 @@ def main() -> None:
         print(f"ticker fetch failed: {e}")
         return
 
+    funding = data.get_funding_rates_pct(config.SYMBOLS)
+
     snapshots: list[dict] = []
     alerts_by_symbol: dict[str, list[str]] = {}
 
@@ -87,7 +93,7 @@ def main() -> None:
             print(f"[{sym}] no ticker data, skip")
             continue
         try:
-            s = build_snapshot(sym, tickers[sym])
+            s = build_snapshot(sym, tickers[sym], funding.get(sym))
             snapshots.append(s)
             triggered = alerts.evaluate(s)
             if triggered:

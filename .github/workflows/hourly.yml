@@ -37,5 +37,6 @@ jobs:
           ALERT_24H_PCT: ${{ vars.ALERT_24H_PCT || '8.0' }}
           ALERT_RSI_HIGH: ${{ vars.ALERT_RSI_HIGH || '70' }}
           ALERT_RSI_LOW: ${{ vars.ALERT_RSI_LOW || '30' }}
+          ALERT_FUNDING_HIGH: ${{ vars.ALERT_FUNDING_HIGH || '0.05' }}
           QUIET_MODE: ${{ vars.QUIET_MODE || 'false' }}
           FORCE_SEND: ${{ github.event.inputs.force_send || 'false' }}
